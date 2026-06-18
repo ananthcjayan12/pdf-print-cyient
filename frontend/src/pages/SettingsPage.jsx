@@ -13,10 +13,10 @@ function SettingsPage() {
     const [selectedPrinter, setSelectedPrinter] = useState('');
     const [loadingPrinters, setLoadingPrinters] = useState(false);
 
-    // Label settings - default 100x38mm = ~3.94x1.5 inches
+    // Label settings - default 150x100mm = ~5.906x3.937 inches
     const [labelSettings, setLabelSettings] = useState({
-        width: 3.94,      // inches (100mm)
-        height: 1.5,      // inches (38mm)
+        width: 5.906,     // inches (150mm)
+        height: 3.937,    // inches (100mm)
         offsetX: 0,       // inches from left
         offsetY: 0,       // inches from top
         scale: 100,       // percentage (50-200)

@@ -14,6 +14,7 @@ import threading
 import datetime
 import hashlib
 from openpyxl import load_workbook
+import fitz
 
 # Windows-specific imports for native printing
 WINDOWS_PRINT_AVAILABLE = False
@@ -672,12 +673,7 @@ class PDFProcessingService:
                 label_settings = {}
 
             if label_settings.get('full_page') or not label_settings.get('crop_enabled', False):
-                pdf_writer = pypdf.PdfWriter()
-                pdf_writer.add_page(original_page)
-                output_buffer = io.BytesIO()
-                pdf_writer.write(output_buffer)
-                output_buffer.seek(0)
-                return output_buffer.getvalue()
+                return self._fit_content_to_label(pdf_path, page_num)
             
             # Scale: 100 = 100% (no change), 50 = shrink to 50%, 200 = expand to 200%
             scale = label_settings.get('scale', 100) / 100.0
@@ -717,6 +713,116 @@ class PDFProcessingService:
             pdf_writer.write(output_buffer)
             output_buffer.seek(0)
             return output_buffer.getvalue()
+
+    def _fit_content_to_label(self, pdf_path, page_num):
+        """Trim page whitespace and fit the label onto 150 x 100 mm stock."""
+        mm_to_points = 72 / 25.4
+        label_width = 150 * mm_to_points
+        label_height = 100 * mm_to_points
+        margin = 1.5 * mm_to_points
+
+        # Flatten the source page's rotation flag before calculating content bounds.
+        reader = pypdf.PdfReader(pdf_path)
+        normalized_page = reader.pages[page_num - 1]
+        normalized_page.transfer_rotation_to_content()
+        normalized_writer = pypdf.PdfWriter()
+        normalized_writer.add_page(normalized_page)
+        normalized_buffer = io.BytesIO()
+        normalized_writer.write(normalized_buffer)
+
+        source = fitz.open(stream=normalized_buffer.getvalue(), filetype='pdf')
+        try:
+            page = source[0]
+            content_rect = self._get_content_rect(page)
+
+            printable_width = label_width - (2 * margin)
+            printable_height = label_height - (2 * margin)
+            normal_scale = min(
+                printable_width / content_rect.width,
+                printable_height / content_rect.height
+            )
+            rotated_scale = min(
+                printable_width / content_rect.height,
+                printable_height / content_rect.width
+            )
+            rotation = 270 if rotated_scale > normal_scale else 0
+
+            if rotation:
+                fitted_width = content_rect.height * rotated_scale
+                fitted_height = content_rect.width * rotated_scale
+            else:
+                fitted_width = content_rect.width * normal_scale
+                fitted_height = content_rect.height * normal_scale
+
+            x0 = (label_width - fitted_width) / 2
+            y0 = (label_height - fitted_height) / 2
+            target_rect = fitz.Rect(x0, y0, x0 + fitted_width, y0 + fitted_height)
+
+            output = fitz.open()
+            cropped = fitz.open()
+            try:
+                cropped_page = cropped.new_page(
+                    width=content_rect.width,
+                    height=content_rect.height
+                )
+                cropped_page.show_pdf_page(
+                    cropped_page.rect,
+                    source,
+                    0,
+                    clip=content_rect,
+                    keep_proportion=False
+                )
+
+                output_page = output.new_page(width=label_width, height=label_height)
+                output_page.show_pdf_page(
+                    target_rect,
+                    cropped,
+                    0,
+                    rotate=rotation,
+                    keep_proportion=True
+                )
+                return output.tobytes(garbage=4, deflate=True)
+            finally:
+                cropped.close()
+                output.close()
+        finally:
+            source.close()
+
+    def _get_content_rect(self, page):
+        """Find visible text, vector drawings, and image bounds on the PDF page."""
+        rects = []
+
+        for block in page.get_text('blocks'):
+            block_rect = fitz.Rect(block[:4])
+            if not block_rect.is_empty:
+                rects.append(block_rect)
+
+        for drawing in page.get_drawings():
+            drawing_rect = drawing.get('rect')
+            if drawing_rect and not drawing_rect.is_empty:
+                rects.append(drawing_rect)
+
+        for image in page.get_images(full=True):
+            try:
+                rects.extend(page.get_image_rects(image[0]))
+            except Exception:
+                continue
+
+        if not rects:
+            return page.rect
+
+        content_rect = fitz.Rect(rects[0])
+        for rect in rects[1:]:
+            content_rect |= rect
+
+        padding = 2
+        content_rect = fitz.Rect(
+            max(page.rect.x0, content_rect.x0 - padding),
+            max(page.rect.y0, content_rect.y0 - padding),
+            min(page.rect.x1, content_rect.x1 + padding),
+            min(page.rect.y1, content_rect.y1 + padding)
+        )
+        return content_rect
 
 class TextExtractionService:
     def _clean_text(self, value):

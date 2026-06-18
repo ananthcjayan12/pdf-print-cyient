@@ -317,7 +317,7 @@ function ScanPage() {
                             src={api.getPreviewUrl(scanResult.file_id, scanResult.page_num)}
                             style={{
                                 width: '100%',
-                                height: '180px',
+                                height: '560px',
                                 border: '1px solid var(--border)',
                                 borderRadius: '8px',
                                 marginBottom: '16px'

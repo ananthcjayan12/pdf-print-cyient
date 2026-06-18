@@ -294,8 +294,8 @@ def preview_page(file_id, page_num):
         if any(key in request.args for key in ('width', 'height', 'offsetX', 'offsetY', 'scale', 'crop_enabled')):
             label_settings = {
                 'crop_enabled': request.args.get('crop_enabled', 'true').lower() == 'true',
-                'width': float(request.args.get('width', 3.94)),
-                'height': float(request.args.get('height', 1.5)),
+                'width': float(request.args.get('width', 5.906)),
+                'height': float(request.args.get('height', 3.937)),
                 'offsetX': float(request.args.get('offsetX', 0)),
                 'offsetY': float(request.args.get('offsetY', 0)),
                 'scale': float(request.args.get('scale', 100))
